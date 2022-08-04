@@ -55,18 +55,22 @@ class NewsCategoryClassifier:
     def __init__(self, config: dict) -> None:
         self.config = config
         """
-        [TO BE IMPLEMENTED]
         1. Load the sentence transformer model and initialize the `featurizer` of type `TransformerFeaturizer` (Hint: revisit Week 1 Step 4)
         2. Load the serialized model as defined in GLOBAL_CONFIG['model'] into memory and initialize `model`
         """
-        featurizer = None
-        model = None
+
+        featurizer = TransformerFeaturizer(
+        self.config["model"]["featurizer"]["sentence_transformer_embedding_dim"],
+        SentenceTransformer('sentence-transformers/{model}'.format(model=self.config["model"]["featurizer"]["sentence_transformer_model"])))
+
+        classifier = joblib.load(self.config["model"]["classifier"]["serialized_model_path"])
+
         self.pipeline = Pipeline([
             ('transformer_featurizer', featurizer),
-            ('classifier', model)
+            ('classifier', classifier)
         ])
 
-    def predict_proba(self, model_input: dict) -> dict:
+    def predict_proba(self, model_input: str) -> dict:
         """
         [TO BE IMPLEMENTED]
         Using the `self.pipeline` constructed during initialization, 
@@ -80,9 +84,13 @@ class NewsCategoryClassifier:
             ...
         }
         """
-        return {}
+        pred = {}
+        preds = self.pipeline.predict_proba([model_input])
+        for i in range(len(preds[0])):
+            pred[f"label_{i+1}"] = preds[0][i]
+        return pred
 
-    def predict_label(self, model_input: dict) -> str:
+    def predict_label(self, model_input: str) -> str:
         """
         [TO BE IMPLEMENTED]
         Using the `self.pipeline` constructed during initialization,
@@ -91,7 +99,7 @@ class NewsCategoryClassifier:
 
         Output format: predicted label for the model input
         """
-        return ""
+        return self.pipeline.predict([model_input])[0]
 
 
 app = FastAPI()
@@ -99,13 +107,15 @@ app = FastAPI()
 @app.on_event("startup")
 def startup_event():
     """
-        [TO BE IMPLEMENTED]
         2. Initialize the `NewsCategoryClassifier` instance to make predictions online. You should pass any relevant config parameters from `GLOBAL_CONFIG` that are needed by NewsCategoryClassifier 
         3. Open an output file to write logs, at the destimation specififed by GLOBAL_CONFIG['service']['log_destination']
         
         Access to the model instance and log file will be needed in /predict endpoint, make sure you
         store them as global variables
     """
+    global model = NewsCategoryClassifier(GLOBAL_CONFIG)
+    global logs = open(GLOBAL_CONFIG["service"]["log_destination"], "a")
+
     logger.info("Setup completed")
 
 
@@ -113,10 +123,11 @@ def startup_event():
 def shutdown_event():
     # clean up
     """
-        [TO BE IMPLEMENTED]
         1. Make sure to flush the log file and close any file pointers to avoid corruption
         2. Any other cleanups
     """
+    logs.flush()
+    logs.close()
     logger.info("Shutting down application")
 
 
@@ -126,7 +137,6 @@ def predict(request: PredictRequest):
     # construct the data to be logged
     # construct response
     """
-        [TO BE IMPLEMENTED]
         1. run model inference and get model predictions for model inputs specified in `request`
         2. Log the following data to the log file (the data should be logged to the file that was opened in `startup_event`, and writes to the path defined in GLOBAL_CONFIG['service']['log_destination'])
         {
@@ -137,7 +147,22 @@ def predict(request: PredictRequest):
         }
         3. Construct an instance of `PredictResponse` and return
     """
-    return {}
+    start_time = time.time()
+
+    proba = model.predict_proba(request.description)
+    label = model.predict_label(request.description)
+
+    latency = time.time()-start_time
+
+    log_info = {
+        "timestamp": datetime.now().strftime("%Y-%M-%D %H:%M:%S"),
+        "request": request.dict(),
+        "prediction": label,
+        "latency": latency
+    }
+    logs.write(f"{json.dumps(log_info)}\n")
+
+    return PredictResponse(proba, label)
 
 
 @app.get("/")
