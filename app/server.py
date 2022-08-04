@@ -9,7 +9,7 @@ from sklearn.pipeline import Pipeline
 
 import time
 import json
-import numpy as np
+import datetime
 
 GLOBAL_CONFIG = {
     "model": {
@@ -163,9 +163,10 @@ def predict(request: PredictRequest):
     print(label)
 
     latency = time.time()-start_time
+    timestamp = datetime.datetime.now()
 
     log_info = {
-        "timestamp": start_time,
+        "timestamp": timestamp.strftime("%Y:%M:%D, %H:%M:%S"),
         "request": request.dict(),
         "prediction": label,
         "latency": latency
