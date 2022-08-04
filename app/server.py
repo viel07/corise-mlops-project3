@@ -7,6 +7,10 @@ from sentence_transformers import SentenceTransformer
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
 
+import time
+import json
+import numpy as np
+
 GLOBAL_CONFIG = {
     "model": {
         "featurizer": {
@@ -14,11 +18,11 @@ GLOBAL_CONFIG = {
             "sentence_transformer_embedding_dim": 768
         },
         "classifier": {
-            "serialized_model_path": "./data/news_classifier.joblib"
+            "serialized_model_path": "../data/news_classifier.joblib"
         }
     },
     "service": {
-        "log_destination": "./data/logs.out"
+        "log_destination": "../data/logs.out"
     }
 }
 
@@ -70,13 +74,13 @@ class NewsCategoryClassifier:
             ('classifier', classifier)
         ])
 
+
     def predict_proba(self, model_input: str) -> dict:
         """
         [TO BE IMPLEMENTED]
         Using the `self.pipeline` constructed during initialization, 
         run model inference on a given model input, and return the 
         model prediction probability scores across all labels
-
         Output format: 
         {
             "label_1": model_score_label_1,
@@ -84,15 +88,16 @@ class NewsCategoryClassifier:
             ...
         }
         """
-        pred = {}
-        preds = self.pipeline.predict_proba([model_input])
-        for i in range(len(preds[0])):
-            pred[f"label_{i+1}"] = preds[0][i]
-        return pred
+
+        preds = self.pipeline.predict_proba([model_input])[0].tolist()
+        classes = self.pipeline.classes_
+        probas = {classes[i]: preds[i] for i in range(len(classes))}
+        return probas
+
+        
 
     def predict_label(self, model_input: str) -> str:
         """
-        [TO BE IMPLEMENTED]
         Using the `self.pipeline` constructed during initialization,
         run model inference on a given model input, and return the
         model prediction label
@@ -113,8 +118,11 @@ def startup_event():
         Access to the model instance and log file will be needed in /predict endpoint, make sure you
         store them as global variables
     """
-    global model = NewsCategoryClassifier(GLOBAL_CONFIG)
-    global logs = open(GLOBAL_CONFIG["service"]["log_destination"], "a")
+    global model
+    global logs 
+
+    model = NewsCategoryClassifier(GLOBAL_CONFIG)
+    logs = open(GLOBAL_CONFIG["service"]["log_destination"], "a")
 
     logger.info("Setup completed")
 
@@ -151,18 +159,23 @@ def predict(request: PredictRequest):
 
     proba = model.predict_proba(request.description)
     label = model.predict_label(request.description)
+    print (proba)
+    print(label)
 
     latency = time.time()-start_time
 
     log_info = {
-        "timestamp": datetime.now().strftime("%Y-%M-%D %H:%M:%S"),
+        "timestamp": start_time,
         "request": request.dict(),
         "prediction": label,
         "latency": latency
     }
+
+    print(log_info)
+    
     logs.write(f"{json.dumps(log_info)}\n")
 
-    return PredictResponse(proba, label)
+    return PredictResponse(scores=proba, label=label)
 
 
 @app.get("/")
